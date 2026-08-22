@@ -1,36 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/app_strings.dart';
 import '../../theme/app_colors.dart';
 import '../../models/restaurant_model.dart';
 import '../../models/menu_item_model.dart';
-
-// Sample restaurants for search
-final _sampleRestaurants = List.generate(8, (i) => RestaurantModel(
-  id: 's$i',
-  nameAr: 'مطعم ${['الشيف', 'الزيتون', 'الريف', 'المذاق', 'الخيمة', 'نجم', 'سدرة', 'بساتين'][i]}',
-  phone: '0912345678',
-  address: 'الخرطوم',
-  district: '${['الرياض', 'العمارات', 'السوق', 'أمدرمان', 'بحري', 'الخرطوم', 'الثورة', 'الكلاكلة'][i]}',
-  rating: (3.8 + (i * 0.1)).clamp(0, 5.0),
-  reviewCount: 60 + i * 25,
-  deliveryFee: 2.0 + (i * 0.3),
-  deliveryTimeMin: 20 + i * 4,
-  deliveryTimeMax: 35 + i * 5,
-  category: ['sudanese', 'middle_eastern', 'fast_food', 'pizza', 'asian', 'dessert', 'cafe', 'other'][i],
-));
-
-// Sample menu items for search
-final _sampleMenuItems = List.generate(10, (i) => MenuItemModel(
-  id: 'm$i',
-  restaurantId: 's${i % 8}',
-  nameAr: '${['شوربة', 'سلطة', 'كبسة', 'مندي', 'باستا', 'برغر', 'بيتزا', 'كنافة', 'عصير', 'قهوة'][i]}',
-  descriptionAr: '${['شوربة عدس', 'سلطة خضراء', 'كبسة دجاج', 'مندي لحم', 'باستا إيطالية', 'برغر لحم', 'بيتزا جبن', 'كنافة بالقشطة', 'عصير مانجو', 'قهوة عربية'][i]}',
-  price: 5.0 + (i * 3.0),
-  category: ['appetizer', 'main', 'main', 'main', 'main', 'main', 'main', 'dessert', 'drink', 'drink'][i],
-));
+import '../../providers/restaurant_provider.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -69,13 +46,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         setState(() {
           _query = value.trim();
           if (_query.isNotEmpty) {
+            final provider = context.read<RestaurantProvider>();
             final lowerQuery = _query.toLowerCase();
-            _restaurantResults = _sampleRestaurants.where((r) =>
-              r.nameAr.contains(lowerQuery),
-            ).toList();
-            _menuResults = _sampleMenuItems.where((m) =>
-              m.nameAr.contains(lowerQuery) || m.descriptionAr.contains(lowerQuery),
-            ).toList();
+            _restaurantResults = provider.searchRestaurants(lowerQuery);
+            _menuResults = provider.searchMenuItems(lowerQuery);
           } else {
             _restaurantResults = [];
             _menuResults = [];

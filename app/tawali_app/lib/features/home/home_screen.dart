@@ -1,41 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/constants/app_strings.dart';
 import '../../theme/app_colors.dart';
 import '../../models/restaurant_model.dart';
-
-// Sample data for UI demonstration
-final _featuredRestaurants = List.generate(5, (i) => RestaurantModel(
-  id: 'r$i',
-  nameAr: 'مطعم ${['الشيف', 'الزيتون', 'الريف', 'المذاق', 'الخيمة'][i]}',
-  phone: '0912345678',
-  address: 'الخرطوم',
-  district: '${['الرياض', 'العمارات', 'السوق', 'أمدرمان', 'بحري'][i]}',
-  rating: (4.0 + (i * 0.2)).clamp(0, 5.0),
-  reviewCount: 100 + i * 30,
-  deliveryFee: 3.0 + (i * 0.5),
-  deliveryTimeMin: 25 + i * 5,
-  deliveryTimeMax: 40 + i * 5,
-  isFeatured: true,
-  category: ['sudanese', 'middle_eastern', 'fast_food', 'pizza', 'asian'][i],
-));
-
-final _allRestaurants = List.generate(10, (i) => RestaurantModel(
-  id: 'a$i',
-  nameAr: 'مطعم ${['نجم', 'سدرة', 'بساتين', 'كنافة', 'مندي', 'شاورما', 'فطائر', 'سمك', 'دجاج', 'مشاوي'][i]}',
-  phone: '0912345678',
-  address: 'الخرطوم',
-  district: '${['الرياض', 'العمارات', 'السوق', 'أمدرمان', 'بحري', 'الخرطوم', 'الثورة', 'الكلاكلة', 'بربري', 'الحاج يوسف'][i]}',
-  rating: (3.5 + (i * 0.15)).clamp(0, 5.0),
-  reviewCount: 50 + i * 20,
-  deliveryFee: 2.0 + (i * 0.3),
-  deliveryTimeMin: 20 + i * 3,
-  deliveryTimeMax: 35 + i * 5,
-  isFeatured: false,
-  category: ['sudanese', 'middle_eastern', 'fast_food', 'pizza', 'asian', 'dessert', 'cafe', 'other', 'sudanese', 'fast_food'][i],
-));
+import '../../providers/restaurant_provider.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -51,18 +22,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    // Restaurants aus Firestore laden (via Provider)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<RestaurantProvider>().loadRestaurants();
+    });
   }
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 800));
+    await context.read<RestaurantProvider>().loadRestaurants(forceRefresh: true);
     if (!mounted) return;
     setState(() => _isLoading = false);
   }
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<RestaurantProvider>();
+    final featured = provider.featuredRestaurants;
+    final all = provider.restaurants;
+    final isBusy = _isLoading || provider.isLoading;
+    final error = provider.error;
+
     return Scaffold(
       body: RefreshIndicator(
         color: AppColors.primary,
@@ -208,7 +188,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
             // Featured restaurants
-            if (!_isLoading) ...[
+            if (!isBusy && error == null) ...[
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -228,10 +208,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _featuredRestaurants.length,
+                    itemCount: featured.length,
                     separatorBuilder: (_, __) => const SizedBox(width: 12),
                     itemBuilder: (context, index) {
-                      final r = _featuredRestaurants[index];
+                      final r = featured[index];
                       return _FeaturedCard(restaurant: r);
                     },
                   ),
@@ -239,7 +219,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ],
             // All restaurants
-            if (!_isLoading) ...[
+            if (!isBusy && error == null) ...[
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
@@ -255,7 +235,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ),
                       const Spacer(),
                       Text(
-                        '${_allRestaurants.length} مطعم',
+                        '${all.length} مطعم',
                         style: const TextStyle(
                           fontSize: 13,
                           color: AppColors.textHint,
@@ -268,15 +248,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               SliverList(
                 delegate: SliverChildBuilderDelegate(
                   (context, index) {
-                    final r = _allRestaurants[index];
+                    final r = all[index];
                     return _RestaurantListItem(restaurant: r);
                   },
-                  childCount: _allRestaurants.length,
+                  childCount: all.length,
+                ),
+              ),
+            ],
+            // Error state
+            if (error != null && !isBusy) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.error_outline, size: 48, color: AppColors.error),
+                      const SizedBox(height: 16),
+                      Text(error, textAlign: TextAlign.center,
+                        style: const TextStyle(color: AppColors.error)),
+                      const SizedBox(height: 16),
+                      TextButton.icon(
+                        onPressed: () => context.read<RestaurantProvider>().loadRestaurants(forceRefresh: true),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Erneut versuchen'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            // Empty state
+            if (!isBusy && error == null && all.isEmpty) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.store_mall_directory_outlined, size: 64, color: AppColors.textHint),
+                      const SizedBox(height: 16),
+                      const Text('Keine Restaurants gefunden',
+                        style: TextStyle(fontSize: 16, color: AppColors.textHint)),
+                    ],
+                  ),
                 ),
               ),
             ],
             // Loading shimmer
-            if (_isLoading) ...[
+            if (isBusy) ...[
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
