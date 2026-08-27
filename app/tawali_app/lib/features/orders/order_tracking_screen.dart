@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/constants/app_strings.dart';
-
 import '../../theme/app_colors.dart';
+import '../../providers/order_provider.dart';
+import 'package:provider/provider.dart';
 
 /// Order status timeline steps
 const List<_OrderStep> _orderSteps = [
@@ -60,6 +61,7 @@ class OrderTrackingScreen extends StatefulWidget {
 class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   late String _orderNumber;
   late String _orderStatus;
+  late String _orderId;
   late int _remainingMinutes;
   Timer? _timer;
 
@@ -67,9 +69,17 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   void initState() {
     super.initState();
     final extra = GoRouterState.of(context).extra as Map<String, dynamic>?;
+    _orderId = extra?['orderId'] as String? ?? '';
     _orderNumber = extra?['orderNumber'] as String? ?? 'TW-20260815-0001';
-    _orderStatus = extra?['orderStatus'] as String? ?? 'confirmed';
+    _orderStatus = 'pending';
     _remainingMinutes = 35;
+
+    if (_orderId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        context.read<OrderProvider>().loadOrder(_orderId);
+        context.read<OrderProvider>().listenToOrder(_orderId);
+      });
+    }
 
     // Countdown timer
     _timer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -88,7 +98,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   bool get _canCancel =>
-      _orderStatus == 'pending' || _orderStatus == 'confirmed';
+      (_orderStatus == 'pending' || _orderStatus == 'confirmed')
+      && _orderId.isNotEmpty;
 
   void _showCancelDialog() {
     final reasonController = TextEditingController();
@@ -126,7 +137,14 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(ctx);
-                setState(() => _orderStatus = 'cancelled');
+                if (_orderId.isNotEmpty) {
+                  context.read<OrderProvider>().cancelOrder(
+                    _orderId,
+                    reason: reasonController.text.isNotEmpty ? reasonController.text : null,
+                  );
+                } else {
+                  setState(() => _orderStatus = 'cancelled');
+                }
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text(AppStrings.orderCancelledSuccess)),
                 );
@@ -145,20 +163,25 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currentIndex = _statusIndex(_orderStatus);
-    final isCancelled = _orderStatus == 'cancelled';
+    final orderProvider = context.watch<OrderProvider>();
+    final liveOrder = orderProvider.currentOrder;
+    final status = liveOrder?.orderStatus ?? _orderStatus;
+    final orderNum = liveOrder?.orderNumber ?? _orderNumber;
+    final currentIndex = _statusIndex(status);
+    final isCancelled = status == 'cancelled';
+    final canCancel = (status == 'pending' || status == 'confirmed') && _orderId.isNotEmpty;
 
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(
-          title: Text('تتبع الطلب #$_orderNumber'),
+          title: Text('تتبع الطلب #$orderNum'),
         ),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             // Header card
-            _buildHeaderCard(currentIndex, isCancelled),
+            _buildHeaderCard(currentIndex, isCancelled, status, orderNum),
             const SizedBox(height: 16),
             // Timeline / Stepper
             if (!isCancelled) _buildTimeline(currentIndex),
@@ -174,7 +197,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
             _buildAddressCard(),
             const SizedBox(height: 24),
             // Cancel button
-            if (_canCancel) _buildCancelButton(),
+            if (canCancel) _buildCancelButton(),
             const SizedBox(height: 24),
           ],
         ),
@@ -182,11 +205,11 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     );
   }
 
-  Widget _buildHeaderCard(int currentIndex, bool isCancelled) {
+  Widget _buildHeaderCard(int currentIndex, bool isCancelled, String status, String orderNum) {
     final statusLabel = isCancelled
         ? AppStrings.orderCancelled
         : _orderSteps[currentIndex].label;
-    final color = isCancelled ? AppColors.statusCancelled : _statusColor(_orderStatus);
+    final color = isCancelled ? AppColors.statusCancelled : _statusColor(status);
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -208,7 +231,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'طلب #$_orderNumber',
+                  'طلب #$orderNum',
                   style: GoogleFonts.cairo(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
